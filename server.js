@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { Pool, types } = require('pg');
 
 types.setTypeParser(1082, (v) => v); // keep DATE columns as 'YYYY-MM-DD' strings
@@ -68,6 +69,8 @@ CREATE TABLE IF NOT EXISTS patients (
   hospital TEXT NOT NULL,
   created_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS username TEXT UNIQUE;
+ALTER TABLE patients ADD COLUMN IF NOT EXISTS password_hash TEXT;
 CREATE TABLE IF NOT EXISTS requests (
   id SERIAL PRIMARY KEY,
   patient_name TEXT NOT NULL,
@@ -99,12 +102,25 @@ const wrap = (fn) => (req, res) =>
 function auth(req, res, next) {
   const token = (req.headers.authorization || '').replace('Bearer ', '');
   try {
-    jwt.verify(token, JWT_SECRET);
+    req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
     res.status(401).json({ error: 'Unauthorized' });
   }
 }
+const role = (r) => (req, res, next) =>
+  req.user && req.user.role === r ? next() : res.status(403).json({ error: 'Forbidden' });
+
+const hashPw = (pw) => {
+  const salt = crypto.randomBytes(16).toString('hex');
+  return `${salt}:${crypto.scryptSync(pw, salt, 64).toString('hex')}`;
+};
+const checkPw = (pw, stored) => {
+  const [salt, hash] = (stored || '').split(':');
+  if (!salt || !hash) return false;
+  return crypto.timingSafeEqual(crypto.scryptSync(pw, salt, 64), Buffer.from(hash, 'hex'));
+};
+const PATIENT_COLS = 'id, name, age, gender, phone, blood_group, hospital, username, created_at';
 
 // ---------- public routes ----------
 app.get('/', (req, res) => res.send('Blood Bank API is running'));
@@ -112,13 +128,69 @@ app.get('/', (req, res) => res.send('Blood Bank API is running'));
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body || {};
   if (username === ADMIN_USER && password === ADMIN_PASS) {
-    return res.json({ token: jwt.sign({ user: username }, JWT_SECRET, { expiresIn: '12h' }) });
+    return res.json({ token: jwt.sign({ user: username, role: 'admin' }, JWT_SECRET, { expiresIn: '12h' }) });
   }
   res.status(401).json({ error: 'Invalid username or password' });
 });
 
+// ---------- patient self-service (public: register + login) ----------
+app.post('/api/patient/register', wrap(async (req, res) => {
+  const { name, age, gender, phone, blood_group, hospital, username, password } = req.body || {};
+  if (!name || !age || !blood_group || !hospital || !username || !password) throw httpErr(400, 'Please fill all required fields');
+  if (!GROUPS.includes(blood_group)) throw httpErr(400, 'Invalid blood group');
+  const uname = String(username).trim().toLowerCase();
+  if (uname.length < 3) throw httpErr(400, 'Username must be at least 3 characters');
+  if (String(password).length < 6) throw httpErr(400, 'Password must be at least 6 characters');
+  let patient;
+  try {
+    patient = (await pool.query(
+      `INSERT INTO patients (name, age, gender, phone, blood_group, hospital, username, password_hash)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+      [name, age, gender || null, phone || null, blood_group, hospital, uname, hashPw(String(password))]
+    )).rows[0];
+  } catch (e) {
+    if (e.code === '23505') throw httpErr(409, 'Username already taken');
+    throw e;
+  }
+  res.status(201).json({ token: jwt.sign({ role: 'patient', id: patient.id }, JWT_SECRET, { expiresIn: '12h' }) });
+}));
+
+app.post('/api/patient/login', wrap(async (req, res) => {
+  const { username, password } = req.body || {};
+  const p = (await pool.query('SELECT id, password_hash FROM patients WHERE username=$1', [String(username || '').trim().toLowerCase()])).rows[0];
+  if (!p || !checkPw(String(password || ''), p.password_hash)) throw httpErr(401, 'Invalid username or password');
+  res.json({ token: jwt.sign({ role: 'patient', id: p.id }, JWT_SECRET, { expiresIn: '12h' }) });
+}));
+
 // everything below needs a token
 app.use('/api', auth);
+
+// ---------- patient-only routes ----------
+app.get('/api/me', role('patient'), wrap(async (req, res) => {
+  const p = (await pool.query(`SELECT ${PATIENT_COLS} FROM patients WHERE id=$1`, [req.user.id])).rows[0];
+  if (!p) throw httpErr(404, 'Patient not found');
+  res.json(p);
+}));
+
+app.get('/api/me/requests', role('patient'), wrap(async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM requests WHERE patient_id=$1 ORDER BY id DESC', [req.user.id]);
+  res.json(rows);
+}));
+
+app.post('/api/me/requests', role('patient'), wrap(async (req, res) => {
+  const units = Number(req.body && req.body.units_needed);
+  if (!units || units < 1) throw httpErr(400, 'Enter how many units you need');
+  const p = (await pool.query('SELECT * FROM patients WHERE id=$1', [req.user.id])).rows[0];
+  if (!p) throw httpErr(404, 'Patient not found');
+  const { rows } = await pool.query(
+    'INSERT INTO requests (patient_id, patient_name, hospital, blood_group, units_needed) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [p.id, p.name, p.hospital, p.blood_group, units]
+  );
+  res.status(201).json(rows[0]);
+}));
+
+// everything below is admin only
+app.use('/api', role('admin'));
 
 // ---------- donors (registration + screening) ----------
 app.get('/api/donors', wrap(async (req, res) => {
@@ -221,7 +293,7 @@ app.get('/api/inventory', wrap(async (req, res) => {
 
 // ---------- patients ----------
 app.get('/api/patients', wrap(async (req, res) => {
-  const { rows } = await pool.query('SELECT * FROM patients ORDER BY id DESC');
+  const { rows } = await pool.query(`SELECT ${PATIENT_COLS} FROM patients ORDER BY id DESC`);
   res.json(rows);
 }));
 
@@ -230,7 +302,7 @@ app.post('/api/patients', wrap(async (req, res) => {
   if (!name || !age || !blood_group || !hospital) throw httpErr(400, 'Please fill all required fields');
   if (!GROUPS.includes(blood_group)) throw httpErr(400, 'Invalid blood group');
   const { rows } = await pool.query(
-    'INSERT INTO patients (name, age, gender, phone, blood_group, hospital) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+    'INSERT INTO patients (name, age, gender, phone, blood_group, hospital) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id, name, blood_group, hospital',
     [name, age, gender || null, phone || null, blood_group, hospital]
   );
   res.status(201).json(rows[0]);

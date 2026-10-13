@@ -11,16 +11,60 @@
 
   <!-- LOGIN -->
   <section id="loginView" class="login">
-    <form id="loginForm" class="card">
+    <div class="card">
       <h1>🩸 Blood Bank</h1>
-      <p class="muted">Admin login</p>
-      <input id="username" placeholder="Username" required />
-      <input id="password" type="password" placeholder="Password" required />
-      <button type="submit">Login</button>
-    </form>
+      <div class="tabs" id="loginTabs">
+        <button data-form="patientLoginForm" class="active">Patient Login</button>
+        <button data-form="registerForm">Patient Register</button>
+        <button data-form="adminForm">Admin</button>
+      </div>
+
+      <form id="patientLoginForm">
+        <input name="username" placeholder="Username" required />
+        <input name="password" type="password" placeholder="Password" required />
+        <button type="submit">Login</button>
+      </form>
+
+      <form id="registerForm" class="hidden">
+        <input name="name" placeholder="Full name *" required />
+        <input name="age" type="number" min="0" placeholder="Age *" required />
+        <select name="gender"><option value="">Gender</option><option>Male</option><option>Female</option><option>Other</option></select>
+        <input name="phone" placeholder="Phone" />
+        <select name="blood_group" class="groupSelect" required></select>
+        <input name="hospital" placeholder="Hospital *" required />
+        <input name="username" placeholder="Choose username *" required />
+        <input name="password" type="password" placeholder="Choose password (min 6) *" required />
+        <button type="submit">Register</button>
+      </form>
+
+      <form id="adminForm" class="hidden">
+        <input name="username" placeholder="Admin username" required />
+        <input name="password" type="password" placeholder="Admin password" required />
+        <button type="submit">Admin Login</button>
+      </form>
+    </div>
   </section>
 
-  <!-- APP -->
+  <!-- PATIENT PORTAL -->
+  <div id="patientView" class="hidden">
+    <header>
+      <strong>🩸 Blood Bank</strong>
+      <span id="patientName" style="flex:1"></span>
+      <button id="patientLogout" class="ghost">Logout</button>
+    </header>
+    <main>
+      <h2>Request Blood</h2>
+      <p id="patientInfo" class="muted"></p>
+      <form id="myRequestForm" class="card form-grid">
+        <input name="units_needed" type="number" min="1" placeholder="Units needed *" required />
+        <button type="submit">Submit Request</button>
+      </form>
+      <h3 style="margin-bottom:10px">My Requests</h3>
+      <div class="scroll"><table><thead><tr><th>ID</th><th>Group</th><th>Units</th><th>Hospital</th><th>Status</th></tr></thead><tbody id="myRequestsBody"></tbody></table></div>
+    </main>
+  </div>
+
+  <!-- ADMIN APP -->
   <div id="appView" class="hidden">
     <header>
       <strong>🩸 Blood Bank</strong>
