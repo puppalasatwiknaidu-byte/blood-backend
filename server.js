@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS blood_units (
   expiry_date DATE NOT NULL,
   status TEXT NOT NULL DEFAULT 'Available'
 );
+CREATE TABLE IF NOT EXISTS patients (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  age INT NOT NULL,
+  gender TEXT,
+  phone TEXT,
+  blood_group TEXT NOT NULL,
+  hospital TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS requests (
   id SERIAL PRIMARY KEY,
   patient_name TEXT NOT NULL,
@@ -67,6 +77,7 @@ CREATE TABLE IF NOT EXISTS requests (
   status TEXT NOT NULL DEFAULT 'Pending',
   created_at TIMESTAMP DEFAULT NOW()
 );
+ALTER TABLE requests ADD COLUMN IF NOT EXISTS patient_id INT REFERENCES patients(id);
 CREATE TABLE IF NOT EXISTS transactions (
   id SERIAL PRIMARY KEY,
   type TEXT NOT NULL,
@@ -208,6 +219,23 @@ app.get('/api/inventory', wrap(async (req, res) => {
   res.json({ groups: GROUPS.map((g) => ({ blood_group: g, units: (stock.find((s) => s.blood_group === g) || {}).units || 0 })), expiring, expired });
 }));
 
+// ---------- patients ----------
+app.get('/api/patients', wrap(async (req, res) => {
+  const { rows } = await pool.query('SELECT * FROM patients ORDER BY id DESC');
+  res.json(rows);
+}));
+
+app.post('/api/patients', wrap(async (req, res) => {
+  const { name, age, gender, phone, blood_group, hospital } = req.body || {};
+  if (!name || !age || !blood_group || !hospital) throw httpErr(400, 'Please fill all required fields');
+  if (!GROUPS.includes(blood_group)) throw httpErr(400, 'Invalid blood group');
+  const { rows } = await pool.query(
+    'INSERT INTO patients (name, age, gender, phone, blood_group, hospital) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *',
+    [name, age, gender || null, phone || null, blood_group, hospital]
+  );
+  res.status(201).json(rows[0]);
+}));
+
 // ---------- blood requests + issue ----------
 app.get('/api/requests', wrap(async (req, res) => {
   const { rows } = await pool.query('SELECT * FROM requests ORDER BY id DESC');
@@ -215,13 +243,14 @@ app.get('/api/requests', wrap(async (req, res) => {
 }));
 
 app.post('/api/requests', wrap(async (req, res) => {
-  const { patient_name, hospital, blood_group, units_needed } = req.body || {};
-  if (!patient_name || !hospital || !blood_group || !units_needed) throw httpErr(400, 'Please fill all fields');
-  if (!GROUPS.includes(blood_group)) throw httpErr(400, 'Invalid blood group');
-  if (units_needed < 1) throw httpErr(400, 'Units must be at least 1');
+  const { patient_id, units_needed } = req.body || {};
+  if (!patient_id || !units_needed) throw httpErr(400, 'Select a patient and enter units needed');
+  if (Number(units_needed) < 1) throw httpErr(400, 'Units must be at least 1');
+  const patient = (await pool.query('SELECT * FROM patients WHERE id=$1', [patient_id])).rows[0];
+  if (!patient) throw httpErr(404, 'Patient not found');
   const { rows } = await pool.query(
-    'INSERT INTO requests (patient_name, hospital, blood_group, units_needed) VALUES ($1,$2,$3,$4) RETURNING *',
-    [patient_name, hospital, blood_group, units_needed]
+    'INSERT INTO requests (patient_id, patient_name, hospital, blood_group, units_needed) VALUES ($1,$2,$3,$4,$5) RETURNING *',
+    [patient.id, patient.name, patient.hospital, patient.blood_group, units_needed]
   );
   res.status(201).json(rows[0]);
 }));

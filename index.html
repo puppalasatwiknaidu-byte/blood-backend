@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Blood Bank Management System</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="toast"></div>
+
+  <!-- LOGIN -->
+  <section id="loginView" class="login">
+    <form id="loginForm" class="card">
+      <h1>🩸 Blood Bank</h1>
+      <p class="muted">Admin login</p>
+      <input id="username" placeholder="Username" required />
+      <input id="password" type="password" placeholder="Password" required />
+      <button type="submit">Login</button>
+    </form>
+  </section>
+
+  <!-- APP -->
+  <div id="appView" class="hidden">
+    <header>
+      <strong>🩸 Blood Bank</strong>
+      <nav id="nav">
+        <button data-tab="dashboard" class="active">Dashboard</button>
+        <button data-tab="donors">Donors</button>
+        <button data-tab="patients">Patients</button>
+        <button data-tab="units">Blood Units</button>
+        <button data-tab="requests">Requests</button>
+        <button data-tab="transactions">Transactions</button>
+      </nav>
+      <button id="logoutBtn" class="ghost">Logout</button>
+    </header>
+
+    <main>
+      <!-- Dashboard -->
+      <section id="dashboard" class="tab">
+        <h2>Blood Stock</h2>
+        <div id="stockCards" class="grid"></div>
+        <div class="row">
+          <h3>Expiring within 7 days</h3>
+          <button id="discardBtn" class="ghost">Discard expired units</button>
+        </div>
+        <p id="expiredNote" class="muted"></p>
+        <div class="scroll"><table><thead><tr><th>Unit</th><th>Group</th><th>Expires</th></tr></thead><tbody id="expiringBody"></tbody></table></div>
+      </section>
+
+      <!-- Donors -->
+      <section id="donors" class="tab hidden">
+        <h2>Donor Registration &amp; Screening</h2>
+        <form id="donorForm" class="card form-grid">
+          <input name="name" placeholder="Full name *" required />
+          <input name="age" type="number" min="1" placeholder="Age *" required />
+          <select name="gender"><option value="">Gender</option><option>Male</option><option>Female</option><option>Other</option></select>
+          <input name="phone" placeholder="Phone" />
+          <select name="blood_group" class="groupSelect" required></select>
+          <input name="weight" type="number" step="0.1" placeholder="Weight (kg) *" required />
+          <input name="hemoglobin" type="number" step="0.1" placeholder="Hemoglobin (g/dL) *" required />
+          <label class="muted">Last donation<input name="last_donation" type="date" /></label>
+          <button type="submit">Register &amp; Screen</button>
+        </form>
+        <div class="scroll"><table><thead><tr><th>ID</th><th>Name</th><th>Group</th><th>Age</th><th>Phone</th><th>Status</th><th>Screening note</th></tr></thead><tbody id="donorsBody"></tbody></table></div>
+      </section>
+
+      <!-- Patients -->
+      <section id="patients" class="tab hidden">
+        <h2>Patient Registration</h2>
+        <form id="patientForm" class="card form-grid">
+          <input name="name" placeholder="Patient name *" required />
+          <input name="age" type="number" min="0" placeholder="Age *" required />
+          <select name="gender"><option value="">Gender</option><option>Male</option><option>Female</option><option>Other</option></select>
+          <input name="phone" placeholder="Phone" />
+          <select name="blood_group" class="groupSelect" required></select>
+          <input name="hospital" placeholder="Hospital *" required />
+          <button type="submit">Register Patient</button>
+        </form>
+        <div class="scroll"><table><thead><tr><th>ID</th><th>Name</th><th>Age</th><th>Gender</th><th>Group</th><th>Hospital</th><th>Phone</th></tr></thead><tbody id="patientsBody"></tbody></table></div>
+      </section>
+
+      <!-- Units -->
+      <section id="units" class="tab hidden">
+        <h2>Blood Collection &amp; Testing</h2>
+        <form id="unitForm" class="card form-grid">
+          <select name="donor_id" id="donorSelect" required></select>
+          <select name="test_result"><option value="Passed">Lab tests: Passed</option><option value="Failed">Lab tests: Failed</option></select>
+          <button type="submit">Collect &amp; Store</button>
+        </form>
+        <div class="scroll"><table><thead><tr><th>Unit</th><th>Donor</th><th>Group</th><th>Tests</th><th>Collected</th><th>Expiry</th><th>Status</th></tr></thead><tbody id="unitsBody"></tbody></table></div>
+      </section>
+
+      <!-- Requests -->
+      <section id="requests" class="tab hidden">
+        <h2>Blood Requests</h2>
+        <form id="requestForm" class="card form-grid">
+          <select name="patient_id" id="patientSelect" required></select>
+          <input name="units_needed" type="number" min="1" placeholder="Units needed *" required />
+          <button type="submit">Submit Request</button>
+        </form>
+        <div class="scroll"><table><thead><tr><th>ID</th><th>Patient</th><th>Hospital</th><th>Group</th><th>Units</th><th>Status</th><th>Action</th></tr></thead><tbody id="requestsBody"></tbody></table></div>
+      </section>
+
+      <!-- Transactions -->
+      <section id="transactions" class="tab hidden">
+        <h2>Transaction Records</h2>
+        <div class="scroll"><table><thead><tr><th>Time</th><th>Type</th><th>Unit</th><th>Request</th><th>Note</th></tr></thead><tbody id="transactionsBody"></tbody></table></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
