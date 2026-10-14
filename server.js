@@ -189,6 +189,63 @@ app.post('/api/me/requests', role('patient'), wrap(async (req, res) => {
   res.status(201).json(rows[0]);
 }));
 
+app.put('/api/me', role('patient'), wrap(async (req, res) => {
+  const { name, age, gender, phone, blood_group, hospital } = req.body || {};
+  if (!name || !age || !blood_group || !hospital) throw httpErr(400, 'Please fill all required fields');
+  if (!GROUPS.includes(blood_group)) throw httpErr(400, 'Invalid blood group');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `UPDATE patients SET name=$2, age=$3, gender=$4, phone=$5, blood_group=$6, hospital=$7 WHERE id=$1 RETURNING ${PATIENT_COLS}`,
+      [req.user.id, name, age, gender || null, phone || null, blood_group, hospital]
+    );
+    if (!rows.length) throw httpErr(404, 'Patient not found');
+    // keep still-pending requests in sync so the right blood group is issued
+    await client.query(
+      `UPDATE requests SET patient_name=$2, hospital=$3, blood_group=$4 WHERE patient_id=$1 AND status='Pending'`,
+      [req.user.id, name, hospital, blood_group]
+    );
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}));
+
+app.post('/api/me/password', role('patient'), wrap(async (req, res) => {
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password) throw httpErr(400, 'Fill both password fields');
+  if (String(new_password).length < 6) throw httpErr(400, 'New password must be at least 6 characters');
+  const p = (await pool.query('SELECT password_hash FROM patients WHERE id=$1', [req.user.id])).rows[0];
+  if (!p || !checkPw(String(current_password), p.password_hash)) throw httpErr(400, 'Current password is incorrect');
+  await pool.query('UPDATE patients SET password_hash=$2 WHERE id=$1', [req.user.id, hashPw(String(new_password))]);
+  res.json({ ok: true });
+}));
+
+app.put('/api/me/requests/:id', role('patient'), wrap(async (req, res) => {
+  const units = Number(req.body && req.body.units_needed);
+  if (!units || units < 1) throw httpErr(400, 'Enter a valid number of units');
+  const { rows } = await pool.query(
+    `UPDATE requests SET units_needed=$3 WHERE id=$1 AND patient_id=$2 AND status='Pending' RETURNING *`,
+    [req.params.id, req.user.id, units]
+  );
+  if (!rows.length) throw httpErr(400, 'Only your pending requests can be edited');
+  res.json(rows[0]);
+}));
+
+app.delete('/api/me/requests/:id', role('patient'), wrap(async (req, res) => {
+  const { rowCount } = await pool.query(
+    `UPDATE requests SET status='Cancelled' WHERE id=$1 AND patient_id=$2 AND status='Pending'`,
+    [req.params.id, req.user.id]
+  );
+  if (!rowCount) throw httpErr(400, 'Only your pending requests can be cancelled');
+  res.json({ ok: true });
+}));
+
 // everything below is admin only
 app.use('/api', role('admin'));
 
